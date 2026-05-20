@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/reset.ts","./src/store.ts","./src/types.ts","./src/components/milestonebutton.tsx","./src/components/progressbar.tsx","./src/components/taskcolumn.tsx","./src/components/taskrow.tsx","./vite.config.ts"],"version":"5.9.3"}
