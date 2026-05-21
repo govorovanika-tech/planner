@@ -17,11 +17,18 @@ export type Task = {
   parentId?: string;
 };
 
+export type ArchivedCompletion = {
+  id: string;
+  color: Color;
+  snapshot: CompletionSnapshot;
+};
+
 export type State = {
   tasks: Task[];
   points: number;
   pendingBank: number;
   lastResetTs: number;
+  archivedCompletions: ArchivedCompletion[];
 };
 
 export const POINTS: Record<Color, number> = {

@@ -1,11 +1,19 @@
 import { useStore } from './store';
-import { ProgressBar } from './components/ProgressBar';
+import { ProgressBar, ProgressEntry } from './components/ProgressBar';
 import { TaskColumn } from './components/TaskColumn';
 
 export default function App() {
   const { state, dispatch } = useStore();
   const today = state.tasks.filter((t) => t.column === 'today');
   const ever = state.tasks.filter((t) => t.column === 'ever');
+  const liveCompletions: ProgressEntry[] = state.tasks
+    .filter((t) => t.completed && t.completedAt != null && t.completedSnapshot)
+    .sort((a, b) => a.completedAt! - b.completedAt!)
+    .map((t) => ({ id: t.id, color: t.color, snapshot: t.completedSnapshot! }));
+  const archivedCompletions: ProgressEntry[] = state.archivedCompletions.map(
+    (a) => ({ id: a.id, color: a.color, snapshot: a.snapshot }),
+  );
+  const completions: ProgressEntry[] = [...archivedCompletions, ...liveCompletions];
 
   return (
     <div className="app">
@@ -14,6 +22,7 @@ export default function App() {
         <ProgressBar
           points={state.points}
           pendingBank={state.pendingBank}
+          completions={completions}
           onSpend={(amount) => dispatch({ type: 'spend', amount })}
         />
       </header>

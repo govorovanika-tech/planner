@@ -1,5 +1,5 @@
 import { useEffect, useReducer } from 'react';
-import { State, Task, Color, Column, POINTS } from './types';
+import { ArchivedCompletion, State, Task, Color, Column, POINTS } from './types';
 import { mostRecent6am } from './reset';
 
 const STORAGE_KEY = 'planner-state-v1';
@@ -9,6 +9,7 @@ const initialState: State = {
   points: 0,
   pendingBank: 0,
   lastResetTs: 0,
+  archivedCompletions: [],
 };
 
 type Action =
@@ -162,9 +163,20 @@ function reducer(state: State, action: Action): State {
       return { ...state, points: state.points - action.amount };
     }
     case 'reset-completed': {
+      const newlyArchived: ArchivedCompletion[] = [];
+      for (const t of state.tasks) {
+        if (!t.completed || !t.completedSnapshot) continue;
+        if (t.completedSnapshot.points <= 0) continue;
+        newlyArchived.push({
+          id: t.id,
+          color: t.color,
+          snapshot: t.completedSnapshot,
+        });
+      }
       return {
         ...state,
         tasks: state.tasks.filter((t) => !t.completed),
+        archivedCompletions: [...state.archivedCompletions, ...newlyArchived],
         lastResetTs: action.ts,
       };
     }

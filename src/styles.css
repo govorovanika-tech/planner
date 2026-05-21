@@ -65,10 +65,25 @@ header h1 {
   overflow: hidden;
 }
 
-.bar-fill {
+.bar-segment {
+  position: absolute;
+  top: 0;
   height: 100%;
-  background: linear-gradient(to right, var(--green), var(--red));
-  transition: width 0.3s ease;
+  display: flex;
+  transition: left 0.3s ease, width 0.3s ease;
+}
+
+.bar-segment-color {
+  height: 100%;
+}
+
+.bar-segment-color-green { background: var(--green); }
+.bar-segment-color-yellow { background: var(--yellow); }
+.bar-segment-color-red { background: var(--red); }
+
+.bar-segment-tail {
+  height: 100%;
+  background: var(--green);
 }
 
 .milestones {
