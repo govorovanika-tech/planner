@@ -21,7 +21,7 @@ body {
 }
 
 .app {
-  max-width: 900px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -119,8 +119,44 @@ header h1 {
 
 .columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
+}
+
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.day-arrow {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.day-arrow:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.day-arrow:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.day-label {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  min-width: 110px;
+  text-align: center;
 }
 
 .column {
@@ -262,6 +298,40 @@ header h1 {
 .task .do {
   align-self: center;
   margin-right: 10px;
+}
+
+.task .target-picker {
+  align-self: center;
+  margin-right: 10px;
+  display: flex;
+  gap: 4px;
+}
+
+.task .target-picker .slice,
+.task .target-picker .do {
+  margin-right: 0;
+}
+
+.planned-select {
+  align-self: center;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.planned-select:hover {
+  border-color: var(--text);
+}
+
+.planned-select:focus-visible {
+  outline: none;
+  border-color: var(--text);
 }
 
 .task input[type="checkbox"] {

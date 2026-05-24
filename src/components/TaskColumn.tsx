@@ -2,16 +2,20 @@ import { useState, KeyboardEvent } from 'react';
 import { Task, Color } from '../types';
 import { TaskRow } from './TaskRow';
 
+type SliceTarget = 'today' | 'tomorrow';
+
 type Props = {
   title: string;
   tasks: Task[];
-  onAdd: (title: string, color: Color) => void;
+  onAdd?: (title: string, color: Color) => void;
   onToggle: (id: string) => void;
   onChangeColor: (id: string) => void;
   onRename: (id: string, title: string) => void;
-  onSlice?: (id: string) => void;
+  onSlice?: (id: string, target: SliceTarget) => void;
   onNah?: (id: string) => void;
-  onDo?: (id: string) => void;
+  onDo?: (id: string, target: SliceTarget) => void;
+  onChangePlannedMinutes?: (id: string, minutes: number | null) => void;
+  emptyText?: string;
 };
 
 const COLORS: Color[] = ['green', 'yellow', 'red'];
@@ -26,6 +30,8 @@ export function TaskColumn({
   onSlice,
   onNah,
   onDo,
+  onChangePlannedMinutes,
+  emptyText,
 }: Props) {
   const [draftColor, setDraftColor] = useState<Color | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
@@ -36,7 +42,7 @@ export function TaskColumn({
   }
 
   function commitDraft() {
-    if (draftColor && draftTitle.trim()) {
+    if (onAdd && draftColor && draftTitle.trim()) {
       onAdd(draftTitle.trim(), draftColor);
     }
     setDraftColor(null);
@@ -57,22 +63,24 @@ export function TaskColumn({
     <section className="column">
       <div className="column-header">
         <h2>{title}</h2>
-        <div className="column-actions">
-          {COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={`add-dot add-dot-${c}`}
-              onClick={() => startDraft(c)}
-              title={`add ${c} task`}
-              aria-label={`add ${c} task`}
-            />
-          ))}
-        </div>
+        {onAdd && (
+          <div className="column-actions">
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`add-dot add-dot-${c}`}
+                onClick={() => startDraft(c)}
+                title={`add ${c} task`}
+                aria-label={`add ${c} task`}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <ul>
         {tasks.length === 0 && !draftColor && (
-          <li className="empty">no tasks</li>
+          <li className="empty">{emptyText ?? 'no tasks'}</li>
         )}
         {tasks.map((task) => (
           <TaskRow
@@ -81,9 +89,14 @@ export function TaskColumn({
             onToggle={() => onToggle(task.id)}
             onChangeColor={() => onChangeColor(task.id)}
             onRename={(t) => onRename(task.id, t)}
-            onSlice={onSlice ? () => onSlice(task.id) : undefined}
+            onSlice={onSlice ? (target) => onSlice(task.id, target) : undefined}
             onNah={onNah ? () => onNah(task.id) : undefined}
-            onDo={onDo ? () => onDo(task.id) : undefined}
+            onDo={onDo ? (target) => onDo(task.id, target) : undefined}
+            onChangePlannedMinutes={
+              onChangePlannedMinutes
+                ? (minutes) => onChangePlannedMinutes(task.id, minutes)
+                : undefined
+            }
           />
         ))}
         {draftColor && (
