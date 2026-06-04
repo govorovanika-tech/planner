@@ -25,6 +25,7 @@ type Props = {
   onCopyTo?: (id: string, target: SliceTarget) => void;
   onHardDelete?: (id: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onMoveBlock?: (blockKey: string | null, direction: 'up' | 'down') => void;
   onChangePlannedMinutes?: (id: string, minutes: number | null) => void;
   onDropTask?: (id: string, beforeId: string | null, clientX: number, clientY: number) => void;
   showTotalTime?: boolean;
@@ -48,6 +49,7 @@ export function TaskColumn({
   onCopyTo,
   onHardDelete,
   onDeleteGroup,
+  onMoveBlock,
   onChangePlannedMinutes,
   onDropTask,
   showTotalTime,
@@ -60,13 +62,15 @@ export function TaskColumn({
   const [draftTitle, setDraftTitle] = useState('');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ id: string; pos: 'before' | 'after' } | null>(null);
+  const FREE_KEY = '__free__';
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  function toggleCollapsed(groupId: string) {
+  function toggleCollapsed(blockKey: string | null) {
+    const k = blockKey ?? FREE_KEY;
     setCollapsedGroups((prev) => {
       const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
       return next;
     });
   }
@@ -190,53 +194,81 @@ export function TaskColumn({
     );
   }
 
+  type Block = {
+    key: string | null;
+    name: string | null;
+    members: Task[];
+  };
+  const blocks: Block[] = [];
+  const blockByKey = new Map<string | null, Block>();
+  for (const t of tasks) {
+    const key = t.groupId && groupById.has(t.groupId) ? t.groupId : null;
+    let block = blockByKey.get(key);
+    if (!block) {
+      block = {
+        key,
+        name: key ? groupById.get(key)!.name : null,
+        members: [],
+      };
+      blockByKey.set(key, block);
+      blocks.push(block);
+    }
+    block.members.push(t);
+  }
+  const hasGroup = blocks.some((b) => b.key !== null);
   const renderedNodes: ReactNode[] = [];
-  const renderedGroupIds = new Set<string>();
-  for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    if (task.groupId && groupById.has(task.groupId)) {
-      if (renderedGroupIds.has(task.groupId)) continue;
-      renderedGroupIds.add(task.groupId);
-      const groupInfo = groupById.get(task.groupId)!;
-      const members = tasks.filter((t) => t.groupId === task.groupId);
-      const memberIds = new Set(members.map((m) => m.id));
-      const groupTotalMinutes = members.reduce(
-        (sum, m) => sum + (m.plannedMinutes ?? 0),
-        0,
-      );
-      const collapsed = collapsedGroups.has(task.groupId);
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const b = blocks[bi];
+    const isGroup = b.key !== null;
+    const showHeader = isGroup || hasGroup;
+    const totalBlockMinutes = b.members.reduce(
+      (sum, m) => sum + (m.plannedMinutes ?? 0),
+      0,
+    );
+    const collapseKey = b.key ?? FREE_KEY;
+    const collapsed = collapsedGroups.has(collapseKey);
+    const allCompleted = b.members.every((m) => m.completed);
+    const someCompleted = b.members.some((m) => m.completed);
+    if (showHeader) {
       renderedNodes.push(
         <GroupHeader
-          key={`group-${task.groupId}`}
-          name={groupInfo.name}
-          count={members.length}
-          totalMinutes={groupTotalMinutes}
+          key={`block-${collapseKey}`}
+          name={b.name ?? 'Tasks'}
+          count={b.members.length}
+          totalMinutes={totalBlockMinutes}
           collapsed={collapsed}
-          onToggleCollapsed={() => toggleCollapsed(task.groupId!)}
-          onDelete={() => onDeleteGroup?.(task.groupId!)}
+          allCompleted={allCompleted}
+          someCompleted={someCompleted}
+          canMoveUp={!!onMoveBlock && bi > 0}
+          canMoveDown={!!onMoveBlock && bi < blocks.length - 1}
+          onToggleCollapsed={() => toggleCollapsed(b.key)}
+          onToggleAll={() => {
+            for (const m of b.members) {
+              if (allCompleted || !m.completed) onToggle(m.id);
+            }
+          }}
+          onMoveUp={() => onMoveBlock?.(b.key, 'up')}
+          onMoveDown={() => onMoveBlock?.(b.key, 'down')}
+          onDelete={isGroup && onDeleteGroup ? () => onDeleteGroup(b.key!) : undefined}
         />,
       );
-      if (!collapsed) {
-        for (let j = 0; j < members.length; j++) {
-          const m = members[j];
-          let nextId: string | null = null;
-          if (j < members.length - 1) {
-            nextId = members[j + 1].id;
-          } else {
-            for (let k = i + 1; k < tasks.length; k++) {
-              if (!memberIds.has(tasks[k].id)) {
-                nextId = tasks[k].id;
-                break;
-              }
-            }
+    }
+    if (collapsed) continue;
+    for (let j = 0; j < b.members.length; j++) {
+      const m = b.members[j];
+      let nextId: string | null = null;
+      if (j < b.members.length - 1) {
+        nextId = b.members[j + 1].id;
+      } else {
+        for (let k = bi + 1; k < blocks.length; k++) {
+          if (blocks[k].members.length > 0) {
+            nextId = blocks[k].members[0].id;
+            break;
           }
-          renderedNodes.push(renderTaskRow(m, nextId, true));
         }
       }
-      continue;
+      renderedNodes.push(renderTaskRow(m, nextId, isGroup));
     }
-    const nextId = tasks[i + 1]?.id ?? null;
-    renderedNodes.push(renderTaskRow(task, nextId, false));
   }
 
   return (

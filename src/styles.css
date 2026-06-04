@@ -473,11 +473,17 @@ header h1 {
   color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 12px;
+  padding: 0 6px;
+  font-size: 16px;
+  line-height: 1;
+  height: 22px;
+  min-width: 22px;
   cursor: pointer;
   margin-right: 8px;
   align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .hard-delete:hover {
@@ -526,11 +532,31 @@ header h1 {
   letter-spacing: 0.08em;
   border-top: 1px solid var(--border);
   margin-top: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.group-header:hover {
+  background: var(--panel-2);
+}
+
+.group-header:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+.group-check {
+  margin: 0;
+  cursor: pointer;
 }
 
 .group-header:first-child {
   border-top: none;
   margin-top: 0;
+}
+
+.group-move {
+  margin: 0;
 }
 
 .group-caret {
@@ -569,7 +595,7 @@ header h1 {
 }
 
 .task-grouped {
-  margin-left: 18px;
+  margin-left: 0;
 }
 
 /* ---- sidebar ---- */
@@ -584,7 +610,7 @@ header h1 {
 }
 
 .sidebar {
-  width: 340px;
+  width: 50vw;
   max-width: 100%;
   height: 100%;
   background: var(--panel);
@@ -683,6 +709,16 @@ header h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  cursor: pointer;
+}
+
+.routine-item:hover {
+  background: var(--panel);
+}
+
+.routine-item:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .routine-item-head {
@@ -709,56 +745,48 @@ header h1 {
   margin-top: 2px;
 }
 
-.routine-item-menu-wrap {
-  position: relative;
+.routine-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-.routine-menu-toggle {
+.routine-move,
+.routine-delete {
   background: transparent;
   color: var(--muted);
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 0 6px;
-  font-size: 16px;
+  padding: 0;
+  font-size: 14px;
   line-height: 1;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
 }
 
-.routine-menu-toggle:hover {
+.routine-move svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+.routine-move:hover:not(:disabled),
+.routine-delete:hover {
   color: var(--text);
   border-color: var(--border);
 }
 
-.routine-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 100px;
-  z-index: 1;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+.routine-move:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
-.routine-menu button {
-  background: transparent;
-  color: var(--text);
-  border: none;
-  border-radius: 4px;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.routine-menu button:hover {
-  background: var(--panel-2);
+.routine-delete {
+  font-size: 18px;
 }
 
 .routine-item-actions {
@@ -772,24 +800,32 @@ header h1 {
 
 /* ---- routine editor ---- */
 
-.routine-editor-name {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--muted);
+.routine-editor-header {
+  gap: 8px;
 }
 
-.routine-editor-name input {
-  background: var(--panel-2);
+.routine-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.routine-name-input {
+  background: transparent;
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 4px;
+  padding: 4px 8px;
   font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
 }
 
-.routine-editor-name input:focus-visible {
+.routine-name-input:focus-visible {
   outline: none;
   border-color: var(--text);
 }
@@ -803,28 +839,30 @@ header h1 {
   gap: 6px;
 }
 
-.routine-editor-add {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.routine-editor-add-label {
-  font-size: 12px;
-  color: var(--muted);
-  margin-right: 4px;
-}
-
 .routine-editor-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 8px;
+  padding-top: 12px;
+  margin-top: 12px;
   border-top: 1px solid var(--border);
 }
 
+.routine-editor-cancel,
 .routine-editor-save {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
   padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.routine-editor-cancel:hover,
+.routine-editor-save:hover:not(:disabled) {
+  border-color: var(--text);
 }
 
 .routine-editor-save:disabled {

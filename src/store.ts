@@ -44,12 +44,14 @@ type Action =
   | { type: 'rename'; id: string; title: string }
   | { type: 'set-planned-minutes'; id: string; minutes: number | null }
   | { type: 'move-task'; id: string; targetColumn: Column; beforeId: string | null; mode: 'move' | 'slice' | 'copy' }
+  | { type: 'move-block'; column: Column; blockKey: string | null; direction: 'up' | 'down' }
   | { type: 'set-view-day'; day: string }
   | { type: 'spend'; amount: number }
   | { type: 'archive-day'; ts: number }
   | { type: 'create-routine'; name: string; items: RoutineItem[] }
   | { type: 'rename-routine'; id: string; name: string }
   | { type: 'update-routine-items'; id: string; items: RoutineItem[] }
+  | { type: 'move-routine'; id: string; direction: 'up' | 'down' }
   | { type: 'delete-routine'; id: string }
   | { type: 'add-routine-to-day'; routineId: string; target: SliceTarget }
   | { type: 'delete-group'; groupId: string }
@@ -350,6 +352,49 @@ function reducer(state: State, action: Action): State {
 
       return { ...state, tasks, tomorrowVisible, groupNames };
     }
+    case 'move-block': {
+      const indices: number[] = [];
+      const colTasks: Task[] = [];
+      state.tasks.forEach((t, i) => {
+        if (t.column === action.column && !t.dayKey) {
+          indices.push(i);
+          colTasks.push(t);
+        }
+      });
+      if (colTasks.length === 0) return state;
+      const keyOf = (t: Task): string | null =>
+        t.groupId && state.groupNames[t.groupId] ? t.groupId : null;
+      const order: (string | null)[] = [];
+      const seen = new Set<string | null>();
+      for (const t of colTasks) {
+        const k = keyOf(t);
+        if (!seen.has(k)) {
+          seen.add(k);
+          order.push(k);
+        }
+      }
+      const idx = order.indexOf(action.blockKey);
+      if (idx < 0) return state;
+      const swap = action.direction === 'up' ? idx - 1 : idx + 1;
+      if (swap < 0 || swap >= order.length) return state;
+      [order[idx], order[swap]] = [order[swap], order[idx]];
+      const byKey = new Map<string | null, Task[]>();
+      for (const t of colTasks) {
+        const k = keyOf(t);
+        if (!byKey.has(k)) byKey.set(k, []);
+        byKey.get(k)!.push(t);
+      }
+      const reordered: Task[] = [];
+      for (const k of order) {
+        const m = byKey.get(k);
+        if (m) reordered.push(...m);
+      }
+      const tasks = state.tasks.slice();
+      indices.forEach((gi, k) => {
+        tasks[gi] = reordered[k];
+      });
+      return { ...state, tasks };
+    }
     case 'set-view-day': {
       return { ...state, viewDay: action.day };
     }
@@ -411,7 +456,7 @@ function reducer(state: State, action: Action): State {
         items: action.items,
         createdAt: Date.now(),
       };
-      return { ...state, routines: [routine, ...state.routines] };
+      return { ...state, routines: [...state.routines, routine] };
     }
     case 'rename-routine': {
       const name = action.name.trim();
@@ -430,6 +475,15 @@ function reducer(state: State, action: Action): State {
           r.id === action.id ? { ...r, items: action.items } : r,
         ),
       };
+    }
+    case 'move-routine': {
+      const idx = state.routines.findIndex((r) => r.id === action.id);
+      if (idx < 0) return state;
+      const swapWith = action.direction === 'up' ? idx - 1 : idx + 1;
+      if (swapWith < 0 || swapWith >= state.routines.length) return state;
+      const routines = state.routines.slice();
+      [routines[idx], routines[swapWith]] = [routines[swapWith], routines[idx]];
+      return { ...state, routines };
     }
     case 'delete-routine': {
       return {

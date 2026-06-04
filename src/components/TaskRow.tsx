@@ -7,7 +7,7 @@ type Props = {
   task: Task;
   hasLiveChild?: boolean;
   inGroup?: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   onChangeColor: () => void;
   onRename: (title: string) => void;
   onSlice?: (target: SliceTarget) => void;
@@ -111,11 +111,13 @@ export function TaskRow({
         title="change color"
         aria-label="change color"
       />
-      <input
-        type="checkbox"
-        checked={task.completed}
-        onChange={onToggle}
-      />
+      {onToggle && (
+        <input
+          type="checkbox"
+          checked={task.completed}
+          onChange={onToggle}
+        />
+      )}
       {editing ? (
         <input
           autoFocus
@@ -256,7 +258,7 @@ export function TaskRow({
           title="delete completely"
           aria-label="delete completely"
         >
-          🗑
+          ×
         </button>
       )}
     </li>

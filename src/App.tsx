@@ -179,6 +179,9 @@ export default function App() {
         onNah={(id) => dispatch({ type: 'nah', id })}
         onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
         onDeleteGroup={(groupId) => dispatch({ type: 'delete-group', groupId })}
+        onMoveBlock={(blockKey, direction) =>
+          dispatch({ type: 'move-block', column: 'today', blockKey, direction })
+        }
         onChangePlannedMinutes={(id, minutes) =>
           dispatch({ type: 'set-planned-minutes', id, minutes })
         }
@@ -213,6 +216,9 @@ export default function App() {
         onNah={(id) => dispatch({ type: 'nah', id })}
         onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
         onDeleteGroup={(groupId) => dispatch({ type: 'delete-group', groupId })}
+        onMoveBlock={(blockKey, direction) =>
+          dispatch({ type: 'move-block', column: 'tomorrow', blockKey, direction })
+        }
         onChangePlannedMinutes={(id, minutes) =>
           dispatch({ type: 'set-planned-minutes', id, minutes })
         }
@@ -237,7 +243,6 @@ export default function App() {
         onRename={(id, title) => dispatch({ type: 'rename', id, title })}
         onSlice={(id, target) => dispatch({ type: 'slice', id, target })}
         onDo={(id, target) => dispatch({ type: 'do', id, target })}
-        onNah={(id) => dispatch({ type: 'nah', id })}
         onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
         onChangePlannedMinutes={(id, minutes) =>
           dispatch({ type: 'set-planned-minutes', id, minutes })
@@ -349,6 +354,9 @@ export default function App() {
         onRename={(id, name) => dispatch({ type: 'rename-routine', id, name })}
         onUpdateItems={(id, items) =>
           dispatch({ type: 'update-routine-items', id, items })
+        }
+        onMove={(id, direction) =>
+          dispatch({ type: 'move-routine', id, direction })
         }
         onDelete={(id) => dispatch({ type: 'delete-routine', id })}
         onAddToDay={(routineId, target) =>
