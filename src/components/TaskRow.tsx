@@ -1,28 +1,50 @@
-import { KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { DragEvent, KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { PLANNED_MINUTES_OPTIONS, Task, formatPlannedMinutes } from '../types';
 
 type SliceTarget = 'today' | 'tomorrow';
 
 type Props = {
   task: Task;
+  hasLiveChild?: boolean;
+  inGroup?: boolean;
   onToggle: () => void;
   onChangeColor: () => void;
   onRename: (title: string) => void;
   onSlice?: (target: SliceTarget) => void;
   onNah?: () => void;
   onDo?: (target: SliceTarget) => void;
+  onCopyTo?: (target: SliceTarget) => void;
+  onHardDelete?: () => void;
   onChangePlannedMinutes?: (minutes: number | null) => void;
+  draggable?: boolean;
+  isDragging?: boolean;
+  dragHint?: 'before' | 'after' | null;
+  onTaskDragStart?: (e: DragEvent<HTMLLIElement>) => void;
+  onTaskDragEnd?: () => void;
+  onTaskDragOver?: (e: DragEvent<HTMLLIElement>) => void;
+  onTaskDrop?: (e: DragEvent<HTMLLIElement>) => void;
 };
 
 export function TaskRow({
   task,
+  hasLiveChild,
+  inGroup,
   onToggle,
   onChangeColor,
   onRename,
   onSlice,
   onNah,
   onDo,
+  onCopyTo,
+  onHardDelete,
   onChangePlannedMinutes,
+  draggable,
+  isDragging,
+  dragHint,
+  onTaskDragStart,
+  onTaskDragEnd,
+  onTaskDragOver,
+  onTaskDrop,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
@@ -73,7 +95,14 @@ export function TaskRow({
   }
 
   return (
-    <li className={`task task-${task.color} ${task.completed ? 'done' : ''} ${task.parentId ? 'sliced' : ''}`}>
+    <li
+      className={`task task-${task.color} ${task.completed ? 'done' : ''} ${task.parentId || hasLiveChild ? 'sliced' : ''} ${inGroup ? 'task-grouped' : ''} ${isDragging ? 'dragging' : ''} ${dragHint === 'before' ? 'drop-before' : ''} ${dragHint === 'after' ? 'drop-after' : ''}`}
+      draggable={draggable}
+      onDragStart={onTaskDragStart}
+      onDragEnd={onTaskDragEnd}
+      onDragOver={onTaskDragOver}
+      onDrop={onTaskDrop}
+    >
       <button
         type="button"
         className="color-strip"
@@ -194,9 +223,40 @@ export function TaskRow({
           </button>
         )
       )}
+      {onCopyTo && !task.completed && (
+        <>
+          <button
+            type="button"
+            className="do"
+            onClick={() => onCopyTo('today')}
+            title="copy to Today"
+          >
+            today
+          </button>
+          <button
+            type="button"
+            className="do"
+            onClick={() => onCopyTo('tomorrow')}
+            title="copy to Tomorrow"
+          >
+            tomorrow
+          </button>
+        </>
+      )}
       {onNah && !task.completed && (
         <button type="button" className="nah" onClick={onNah} title="move to Ever or remove">
           nah
+        </button>
+      )}
+      {onHardDelete && !task.completed && (
+        <button
+          type="button"
+          className="hard-delete"
+          onClick={onHardDelete}
+          title="delete completely"
+          aria-label="delete completely"
+        >
+          🗑
         </button>
       )}
     </li>

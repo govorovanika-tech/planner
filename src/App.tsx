@@ -1,7 +1,18 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useStore } from './store';
+import { Column, Task } from './types';
 import { ProgressBar, ProgressEntry } from './components/ProgressBar';
-import { TaskColumn } from './components/TaskColumn';
+import { GroupInfo, TaskColumn } from './components/TaskColumn';
+import { RoutineSidebar } from './components/RoutineSidebar';
+import { PlanTomorrowButton } from './components/PlanTomorrowButton';
+
+type PendingDrop = {
+  id: string;
+  targetColumn: 'today' | 'tomorrow';
+  beforeId: string | null;
+  x: number;
+  y: number;
+};
 
 function formatDayLabel(dayKey: string): string {
   const [y, m, d] = dayKey.split('-').map(Number);
@@ -13,9 +24,70 @@ function formatDayLabel(dayKey: string): string {
   });
 }
 
+function deriveGroups(tasks: Task[], groupNames: Record<string, string>): GroupInfo[] {
+  const seen = new Set<string>();
+  const out: GroupInfo[] = [];
+  for (const t of tasks) {
+    if (!t.groupId || seen.has(t.groupId)) continue;
+    const name = groupNames[t.groupId];
+    if (!name) continue;
+    seen.add(t.groupId);
+    out.push({ groupId: t.groupId, name });
+  }
+  return out;
+}
+
 export default function App() {
   const { state, dispatch } = useStore();
-  const isToday = state.viewDay === state.currentDay;
+  const [pendingDrop, setPendingDrop] = useState<PendingDrop | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [historyOffset, setHistoryOffset] = useState(0);
+
+  function handleDrop(
+    targetColumn: Column,
+    id: string,
+    beforeId: string | null,
+    x: number,
+    y: number,
+  ) {
+    const task = state.tasks.find((t) => t.id === id);
+    if (!task) return;
+    if (
+      task.column === 'ever' &&
+      !task.dayKey &&
+      (targetColumn === 'today' || targetColumn === 'tomorrow')
+    ) {
+      setPendingDrop({ id, targetColumn, beforeId, x, y });
+      return;
+    }
+    dispatch({ type: 'move-task', id, targetColumn, beforeId, mode: 'move' });
+  }
+
+  function resolvePending(mode: 'move' | 'slice') {
+    if (!pendingDrop) return;
+    dispatch({
+      type: 'move-task',
+      id: pendingDrop.id,
+      targetColumn: pendingDrop.targetColumn,
+      beforeId: pendingDrop.beforeId,
+      mode,
+    });
+    setPendingDrop(null);
+  }
+
+  const liveChildParentIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of state.tasks) {
+      if (
+        t.parentId &&
+        !t.dayKey &&
+        (t.column === 'today' || t.column === 'tomorrow')
+      ) {
+        set.add(t.parentId);
+      }
+    }
+    return set;
+  }, [state.tasks]);
 
   const archivedDayKeys = useMemo(() => {
     const set = new Set<string>();
@@ -25,17 +97,14 @@ export default function App() {
     return Array.from(set).sort();
   }, [state.tasks]);
 
-  const prevDay = useMemo(() => {
-    const earlier = archivedDayKeys.filter((k) => k < state.viewDay);
-    return earlier.length ? earlier[earlier.length - 1] : null;
-  }, [archivedDayKeys, state.viewDay]);
+  const maxOffset = archivedDayKeys.length;
+  const clampedOffset = Math.min(historyOffset, maxOffset);
 
-  const nextDay = useMemo(() => {
-    if (isToday) return null;
-    const later = archivedDayKeys.filter((k) => k > state.viewDay);
-    if (later.length) return later[0];
-    return state.currentDay;
-  }, [archivedDayKeys, state.viewDay, state.currentDay, isToday]);
+  function dayKeyForOffset(offset: number): string | null {
+    if (offset <= 0) return state.currentDay;
+    const idx = archivedDayKeys.length - offset;
+    return idx >= 0 ? archivedDayKeys[idx] : null;
+  }
 
   const todayTasks = state.tasks.filter(
     (t) => t.column === 'today' && !t.dayKey,
@@ -46,7 +115,15 @@ export default function App() {
   const everTasks = state.tasks.filter(
     (t) => t.column === 'ever' && !t.dayKey,
   );
-  const pastTasks = state.tasks.filter((t) => t.dayKey === state.viewDay);
+
+  const todayGroups = useMemo(
+    () => deriveGroups(todayTasks, state.groupNames),
+    [todayTasks, state.groupNames],
+  );
+  const tomorrowGroups = useMemo(
+    () => deriveGroups(tomorrowTasks, state.groupNames),
+    [tomorrowTasks, state.groupNames],
+  );
 
   const liveCompletions: ProgressEntry[] = state.tasks
     .filter(
@@ -63,10 +140,168 @@ export default function App() {
   );
   const completions: ProgressEntry[] = [...archivedCompletions, ...liveCompletions];
 
+  const showTomorrowColumn =
+    state.tomorrowVisible || tomorrowTasks.length > 0;
+
+  function renderPastColumn(dayKey: string) {
+    const past = state.tasks.filter((t) => t.dayKey === dayKey);
+    return (
+      <TaskColumn
+        key={`past-${dayKey}`}
+        title={formatDayLabel(dayKey)}
+        tasks={past}
+        onToggle={(id) => dispatch({ type: 'toggle', id })}
+        onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
+        onRename={(id, title) => dispatch({ type: 'rename', id, title })}
+        onNah={(id) => dispatch({ type: 'nah', id })}
+        onChangePlannedMinutes={(id, minutes) =>
+          dispatch({ type: 'set-planned-minutes', id, minutes })
+        }
+        emptyText="no tasks on this day"
+      />
+    );
+  }
+
+  function renderTodayColumn() {
+    return (
+      <TaskColumn
+        key="today"
+        title="Today"
+        tasks={todayTasks}
+        groups={todayGroups}
+        liveChildParentIds={liveChildParentIds}
+        onAdd={(title, color) =>
+          dispatch({ type: 'add', title, color, column: 'today' })
+        }
+        onToggle={(id) => dispatch({ type: 'toggle', id })}
+        onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
+        onRename={(id, title) => dispatch({ type: 'rename', id, title })}
+        onNah={(id) => dispatch({ type: 'nah', id })}
+        onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
+        onDeleteGroup={(groupId) => dispatch({ type: 'delete-group', groupId })}
+        onChangePlannedMinutes={(id, minutes) =>
+          dispatch({ type: 'set-planned-minutes', id, minutes })
+        }
+        onDropTask={(id, beforeId, x, y) => handleDrop('today', id, beforeId, x, y)}
+        showTotalTime
+      />
+    );
+  }
+
+  function renderTomorrowColumn() {
+    if (!showTomorrowColumn) {
+      return (
+        <PlanTomorrowButton
+          key="plan-tomorrow"
+          onClick={() => dispatch({ type: 'show-tomorrow' })}
+        />
+      );
+    }
+    return (
+      <TaskColumn
+        key="tomorrow"
+        title="Tomorrow"
+        tasks={tomorrowTasks}
+        groups={tomorrowGroups}
+        liveChildParentIds={liveChildParentIds}
+        onAdd={(title, color) =>
+          dispatch({ type: 'add', title, color, column: 'tomorrow' })
+        }
+        onToggle={(id) => dispatch({ type: 'toggle', id })}
+        onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
+        onRename={(id, title) => dispatch({ type: 'rename', id, title })}
+        onNah={(id) => dispatch({ type: 'nah', id })}
+        onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
+        onDeleteGroup={(groupId) => dispatch({ type: 'delete-group', groupId })}
+        onChangePlannedMinutes={(id, minutes) =>
+          dispatch({ type: 'set-planned-minutes', id, minutes })
+        }
+        onDropTask={(id, beforeId, x, y) => handleDrop('tomorrow', id, beforeId, x, y)}
+        showTotalTime
+      />
+    );
+  }
+
+  function renderEverColumn() {
+    return (
+      <TaskColumn
+        key="ever"
+        title="Ever"
+        tasks={everTasks}
+        liveChildParentIds={liveChildParentIds}
+        onAdd={(title, color) =>
+          dispatch({ type: 'add', title, color, column: 'ever' })
+        }
+        onToggle={(id) => dispatch({ type: 'toggle', id })}
+        onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
+        onRename={(id, title) => dispatch({ type: 'rename', id, title })}
+        onSlice={(id, target) => dispatch({ type: 'slice', id, target })}
+        onDo={(id, target) => dispatch({ type: 'do', id, target })}
+        onNah={(id) => dispatch({ type: 'nah', id })}
+        onHardDelete={(id) => dispatch({ type: 'delete-task-hard', id })}
+        onChangePlannedMinutes={(id, minutes) =>
+          dispatch({ type: 'set-planned-minutes', id, minutes })
+        }
+        onDropTask={(id, beforeId, x, y) => handleDrop('ever', id, beforeId, x, y)}
+      />
+    );
+  }
+
+  let mainColumns: React.ReactNode;
+  if (clampedOffset === 0) {
+    mainColumns = (
+      <>
+        {renderTodayColumn()}
+        {renderTomorrowColumn()}
+        {renderEverColumn()}
+      </>
+    );
+  } else if (clampedOffset === 1) {
+    const yesterday = dayKeyForOffset(1);
+    mainColumns = (
+      <>
+        {yesterday && renderPastColumn(yesterday)}
+        {renderTodayColumn()}
+        {renderEverColumn()}
+      </>
+    );
+  } else {
+    const leftKey = dayKeyForOffset(clampedOffset);
+    const rightKey = dayKeyForOffset(clampedOffset - 1);
+    mainColumns = (
+      <>
+        {leftKey && renderPastColumn(leftKey)}
+        {rightKey && renderPastColumn(rightKey)}
+        {renderEverColumn()}
+      </>
+    );
+  }
+
+  const headerLabel = (() => {
+    if (clampedOffset === 0) return 'Today';
+    if (clampedOffset === 1) {
+      const k = dayKeyForOffset(1);
+      return k ? `${formatDayLabel(k)} · Today` : 'Today';
+    }
+    const left = dayKeyForOffset(clampedOffset);
+    const right = dayKeyForOffset(clampedOffset - 1);
+    if (left && right) return `${formatDayLabel(left)} · ${formatDayLabel(right)}`;
+    return 'History';
+  })();
+
   return (
     <div className="app">
       <header>
-        <h1>Planner</h1>
+        <div className="header-top">
+          <h1>Planner</h1>
+          <button
+            type="button"
+            className="routines-toggle"
+            onClick={() => setSidebarOpen(true)}
+          >
+            Routines
+          </button>
+        </div>
         <ProgressBar
           points={state.points}
           pendingBank={state.pendingBank}
@@ -77,99 +312,66 @@ export default function App() {
           <button
             type="button"
             className="day-arrow"
-            onClick={() => prevDay && dispatch({ type: 'set-view-day', day: prevDay })}
-            disabled={!prevDay}
+            onClick={() => setHistoryOffset((o) => Math.min(maxOffset, o + 1))}
+            disabled={clampedOffset >= maxOffset}
             aria-label="previous day"
           >
             ←
           </button>
-          <span className="day-label">
-            {isToday ? 'Today' : formatDayLabel(state.viewDay)}
-          </span>
+          <span className="day-label">{headerLabel}</span>
           <button
             type="button"
             className="day-arrow"
-            onClick={() => nextDay && dispatch({ type: 'set-view-day', day: nextDay })}
-            disabled={!nextDay}
+            onClick={() => setHistoryOffset((o) => Math.max(0, o - 1))}
+            disabled={clampedOffset === 0}
             aria-label="next day"
           >
             →
           </button>
+          {clampedOffset >= 2 && (
+            <button
+              type="button"
+              className="day-arrow day-today-jump"
+              onClick={() => setHistoryOffset(0)}
+            >
+              Today
+            </button>
+          )}
         </div>
       </header>
-      <main className={`columns ${isToday ? 'columns-three' : 'columns-two'}`}>
-        {isToday ? (
-          <>
-            <TaskColumn
-              title="Today"
-              tasks={todayTasks}
-              onAdd={(title, color) =>
-                dispatch({ type: 'add', title, color, column: 'today' })
-              }
-              onToggle={(id) => dispatch({ type: 'toggle', id })}
-              onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
-              onRename={(id, title) => dispatch({ type: 'rename', id, title })}
-              onNah={(id) => dispatch({ type: 'nah', id })}
-              onChangePlannedMinutes={(id, minutes) =>
-                dispatch({ type: 'set-planned-minutes', id, minutes })
-              }
-            />
-            <TaskColumn
-              title="Tomorrow"
-              tasks={tomorrowTasks}
-              onAdd={(title, color) =>
-                dispatch({ type: 'add', title, color, column: 'tomorrow' })
-              }
-              onToggle={(id) => dispatch({ type: 'toggle', id })}
-              onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
-              onRename={(id, title) => dispatch({ type: 'rename', id, title })}
-              onNah={(id) => dispatch({ type: 'nah', id })}
-              onChangePlannedMinutes={(id, minutes) =>
-                dispatch({ type: 'set-planned-minutes', id, minutes })
-              }
-            />
-            <TaskColumn
-              title="Ever"
-              tasks={everTasks}
-              onAdd={(title, color) =>
-                dispatch({ type: 'add', title, color, column: 'ever' })
-              }
-              onToggle={(id) => dispatch({ type: 'toggle', id })}
-              onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
-              onRename={(id, title) => dispatch({ type: 'rename', id, title })}
-              onSlice={(id, target) => dispatch({ type: 'slice', id, target })}
-              onDo={(id, target) => dispatch({ type: 'do', id, target })}
-            />
-          </>
-        ) : (
-          <>
-            <TaskColumn
-              title={formatDayLabel(state.viewDay)}
-              tasks={pastTasks}
-              onToggle={(id) => dispatch({ type: 'toggle', id })}
-              onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
-              onRename={(id, title) => dispatch({ type: 'rename', id, title })}
-              onNah={(id) => dispatch({ type: 'nah', id })}
-              onChangePlannedMinutes={(id, minutes) =>
-                dispatch({ type: 'set-planned-minutes', id, minutes })
-              }
-              emptyText="no tasks on this day"
-            />
-            <TaskColumn
-              title="Ever"
-              tasks={everTasks}
-              onAdd={(title, color) =>
-                dispatch({ type: 'add', title, color, column: 'ever' })
-              }
-              onToggle={(id) => dispatch({ type: 'toggle', id })}
-              onChangeColor={(id) => dispatch({ type: 'cycle-color', id })}
-              onRename={(id, title) => dispatch({ type: 'rename', id, title })}
-              onSlice={(id, target) => dispatch({ type: 'slice', id, target })}
-              onDo={(id, target) => dispatch({ type: 'do', id, target })}
-            />
-          </>
-        )}
-      </main>
+      <main className="columns">{mainColumns}</main>
+
+      <RoutineSidebar
+        open={sidebarOpen}
+        routines={state.routines}
+        onClose={() => setSidebarOpen(false)}
+        onCreate={(name, items) => dispatch({ type: 'create-routine', name, items })}
+        onRename={(id, name) => dispatch({ type: 'rename-routine', id, name })}
+        onUpdateItems={(id, items) =>
+          dispatch({ type: 'update-routine-items', id, items })
+        }
+        onDelete={(id) => dispatch({ type: 'delete-routine', id })}
+        onAddToDay={(routineId, target) =>
+          dispatch({ type: 'add-routine-to-day', routineId, target })
+        }
+      />
+
+      {pendingDrop && (
+        <div className="drop-picker-backdrop" onClick={() => setPendingDrop(null)}>
+          <div
+            className="drop-picker"
+            style={{ left: pendingDrop.x + 8, top: pendingDrop.y + 8 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" onClick={() => resolvePending('slice')}>
+              slice
+            </button>
+            <button type="button" onClick={() => resolvePending('move')}>
+              move
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

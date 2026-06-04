@@ -1,9 +1,10 @@
 import { useEffect, useReducer } from 'react';
-import { ArchivedCompletion, State, Task, Color, Column } from './types';
+import { ArchivedCompletion, State, Task, Color, Column, Routine, RoutineItem } from './types';
 import { POINTS } from './types';
 import { mostRecent6am } from './reset';
 
 const STORAGE_KEY = 'planner-state-v1';
+const SCHEMA_VERSION = 2;
 
 function dayKeyOf(ts: number): string {
   const d = new Date(ts);
@@ -25,6 +26,10 @@ const initialState: State = {
   archivedCompletions: [],
   currentDay: currentDayNow(),
   viewDay: currentDayNow(),
+  routines: [],
+  groupNames: {},
+  tomorrowVisible: false,
+  schemaVersion: SCHEMA_VERSION,
 };
 
 type SliceTarget = 'today' | 'tomorrow';
@@ -38,11 +43,20 @@ type Action =
   | { type: 'do'; id: string; target: SliceTarget }
   | { type: 'rename'; id: string; title: string }
   | { type: 'set-planned-minutes'; id: string; minutes: number | null }
+  | { type: 'move-task'; id: string; targetColumn: Column; beforeId: string | null; mode: 'move' | 'slice' | 'copy' }
   | { type: 'set-view-day'; day: string }
   | { type: 'spend'; amount: number }
-  | { type: 'archive-day'; ts: number };
+  | { type: 'archive-day'; ts: number }
+  | { type: 'create-routine'; name: string; items: RoutineItem[] }
+  | { type: 'rename-routine'; id: string; name: string }
+  | { type: 'update-routine-items'; id: string; items: RoutineItem[] }
+  | { type: 'delete-routine'; id: string }
+  | { type: 'add-routine-to-day'; routineId: string; target: SliceTarget }
+  | { type: 'delete-group'; groupId: string }
+  | { type: 'delete-task-hard'; id: string }
+  | { type: 'show-tomorrow' };
 
-const COLOR_CYCLE: Color[] = ['green', 'yellow', 'red'];
+const COLOR_CYCLE: Color[] = ['white', 'green', 'yellow', 'red'];
 
 function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -53,16 +67,23 @@ function applyCompletion(state: State, task: Task): State {
   let bank = state.pendingBank;
   let snapPoints: number;
   let snapBank: number;
-  if (task.color === 'green') {
+  if (task.color === 'white') {
+    snapPoints = 0;
+    snapBank = 0;
+  } else if (task.color === 'green') {
     points += POINTS.green;
     bank += POINTS.green;
     snapPoints = POINTS.green;
     snapBank = POINTS.green;
-  } else {
-    snapPoints = POINTS[task.color] + bank;
+  } else if (task.color === 'red') {
+    snapPoints = POINTS.red + bank;
     snapBank = -bank;
     points += snapPoints;
     bank = 0;
+  } else {
+    snapPoints = POINTS.yellow;
+    snapBank = 0;
+    points += snapPoints;
   }
   const completedAt = Date.now();
   const tasks = state.tasks.map((t) => {
@@ -99,10 +120,22 @@ function applyUncompletion(state: State, task: Task): State {
   return { ...state, tasks, points, pendingBank };
 }
 
+function pruneGroupName(
+  groupNames: Record<string, string>,
+  tasks: Task[],
+  groupId: string,
+): Record<string, string> {
+  if (!groupNames[groupId]) return groupNames;
+  const stillUsed = tasks.some((t) => t.groupId === groupId && !t.dayKey);
+  if (stillUsed) return groupNames;
+  const { [groupId]: _drop, ...rest } = groupNames;
+  return rest;
+}
+
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'add': {
-      const allowPlanned = action.column === 'today';
+      const allowPlanned = action.column === 'today' || action.column === 'tomorrow';
       const task: Task = {
         id: uid(),
         title: action.title,
@@ -144,8 +177,11 @@ function reducer(state: State, action: Action): State {
         completed: false,
         completedAt: null,
         parentId: master.id,
+        ...(master.plannedMinutes != null ? { plannedMinutes: master.plannedMinutes } : {}),
       };
-      return { ...state, tasks: [...state.tasks, copy] };
+      const tomorrowVisible =
+        action.target === 'tomorrow' ? true : state.tomorrowVisible;
+      return { ...state, tasks: [...state.tasks, copy], tomorrowVisible };
     }
     case 'nah': {
       const task = state.tasks.find((t) => t.id === action.id);
@@ -153,17 +189,34 @@ function reducer(state: State, action: Action): State {
       if (task.dayKey) {
         return { ...state, tasks: state.tasks.filter((t) => t.id !== task.id) };
       }
-      if (task.column !== 'today' && task.column !== 'tomorrow') return state;
       if (task.completed) return state;
-      if (task.parentId) {
-        return { ...state, tasks: state.tasks.filter((t) => t.id !== task.id) };
+      if (task.column === 'ever') {
+        const tasks = state.tasks
+          .filter((t) => t.id !== task.id)
+          .map((t) => {
+            if (t.parentId !== task.id) return t;
+            const { parentId: _drop, ...rest } = t;
+            return rest;
+          });
+        return { ...state, tasks };
       }
-      return {
-        ...state,
-        tasks: state.tasks.map((t) =>
-          t.id === task.id ? { ...t, column: 'ever' } : t,
-        ),
-      };
+      if (task.column !== 'today' && task.column !== 'tomorrow') return state;
+      if (task.parentId) {
+        const tasks = state.tasks.filter((t) => t.id !== task.id);
+        const groupNames = task.groupId
+          ? pruneGroupName(state.groupNames, tasks, task.groupId)
+          : state.groupNames;
+        return { ...state, tasks, groupNames };
+      }
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== task.id) return t;
+        const { groupId: _drop, ...rest } = t;
+        return { ...rest, column: 'ever' as Column };
+      });
+      const groupNames = task.groupId
+        ? pruneGroupName(state.groupNames, tasks, task.groupId)
+        : state.groupNames;
+      return { ...state, tasks, groupNames };
     }
     case 'do': {
       const master = state.tasks.find((t) => t.id === action.id);
@@ -179,7 +232,9 @@ function reducer(state: State, action: Action): State {
             ),
         )
         .map((t) => (t.id === master.id ? { ...t, column: action.target } : t));
-      return { ...state, tasks };
+      const tomorrowVisible =
+        action.target === 'tomorrow' ? true : state.tomorrowVisible;
+      return { ...state, tasks, tomorrowVisible };
     }
     case 'rename': {
       const title = action.title.trim();
@@ -199,7 +254,6 @@ function reducer(state: State, action: Action): State {
         ...state,
         tasks: state.tasks.map((t) => {
           if (t.id !== action.id) return t;
-          if (t.column === 'ever' && !t.dayKey) return t;
           if (action.minutes == null) {
             const { plannedMinutes: _drop, ...rest } = t;
             return rest;
@@ -207,6 +261,94 @@ function reducer(state: State, action: Action): State {
           return { ...t, plannedMinutes: action.minutes };
         }),
       };
+    }
+    case 'move-task': {
+      const task = state.tasks.find((t) => t.id === action.id);
+      if (!task || task.dayKey) return state;
+      const targetCol = action.targetColumn;
+      const tomorrowVisible =
+        targetCol === 'tomorrow' ? true : state.tomorrowVisible;
+
+      if (action.mode === 'slice') {
+        if (task.column !== 'ever' || (targetCol !== 'today' && targetCol !== 'tomorrow')) {
+          return state;
+        }
+        const copy: Task = {
+          id: uid(),
+          title: task.title,
+          color: task.color,
+          column: targetCol,
+          completed: false,
+          completedAt: null,
+          parentId: task.id,
+          ...(task.plannedMinutes != null ? { plannedMinutes: task.plannedMinutes } : {}),
+        };
+        const at = action.beforeId
+          ? state.tasks.findIndex((t) => t.id === action.beforeId)
+          : -1;
+        const tasks = at >= 0
+          ? [...state.tasks.slice(0, at), copy, ...state.tasks.slice(at)]
+          : [...state.tasks, copy];
+        return { ...state, tasks, tomorrowVisible };
+      }
+
+      if (action.mode === 'copy') {
+        if (targetCol !== 'today' && targetCol !== 'tomorrow') return state;
+        const copy: Task = {
+          id: uid(),
+          title: task.title,
+          color: task.color,
+          column: targetCol,
+          completed: false,
+          completedAt: null,
+          ...(task.plannedMinutes != null ? { plannedMinutes: task.plannedMinutes } : {}),
+        };
+        const at = action.beforeId
+          ? state.tasks.findIndex((t) => t.id === action.beforeId)
+          : -1;
+        const tasks = at >= 0
+          ? [...state.tasks.slice(0, at), copy, ...state.tasks.slice(at)]
+          : [...state.tasks, copy];
+        return { ...state, tasks, tomorrowVisible };
+      }
+
+      if (task.completed && task.column !== targetCol) return state;
+
+      const crossColumn = task.column !== targetCol;
+      const updated: Task = (() => {
+        if (!crossColumn) return task;
+        if (task.groupId) {
+          const { groupId: _drop, ...rest } = task;
+          return { ...rest, column: targetCol };
+        }
+        return { ...task, column: targetCol };
+      })();
+      let tasks = state.tasks.filter((t) => t.id !== task.id);
+      const at = action.beforeId
+        ? tasks.findIndex((t) => t.id === action.beforeId)
+        : -1;
+      tasks = at >= 0
+        ? [...tasks.slice(0, at), updated, ...tasks.slice(at)]
+        : [...tasks, updated];
+
+      if (task.column === 'ever' && (targetCol === 'today' || targetCol === 'tomorrow')) {
+        tasks = tasks.filter(
+          (t) =>
+            !(
+              t.id !== updated.id &&
+              t.parentId === task.id &&
+              !t.dayKey &&
+              (t.column === 'today' || t.column === 'tomorrow') &&
+              !t.completed
+            ),
+        );
+      }
+
+      const groupNames = crossColumn && task.groupId
+        ? pruneGroupName(state.groupNames, tasks, task.groupId)
+        : state.groupNames;
+
+      return { ...state, tasks, tomorrowVisible, groupNames };
     }
     case 'set-view-day': {
       return { ...state, viewDay: action.day };
@@ -243,6 +385,14 @@ function reducer(state: State, action: Action): State {
         }
         tasks.push(t);
       }
+      const usedGroupIds = new Set<string>();
+      for (const t of tasks) {
+        if (t.groupId && !t.dayKey) usedGroupIds.add(t.groupId);
+      }
+      const groupNames: Record<string, string> = {};
+      for (const [gid, name] of Object.entries(state.groupNames)) {
+        if (usedGroupIds.has(gid)) groupNames[gid] = name;
+      }
       return {
         ...state,
         tasks,
@@ -250,20 +400,140 @@ function reducer(state: State, action: Action): State {
         lastResetTs: action.ts,
         currentDay: newDay,
         viewDay: newDay,
+        tomorrowVisible: false,
+        groupNames,
       };
     }
+    case 'create-routine': {
+      const routine: Routine = {
+        id: uid(),
+        name: action.name.trim() || 'Untitled',
+        items: action.items,
+        createdAt: Date.now(),
+      };
+      return { ...state, routines: [routine, ...state.routines] };
+    }
+    case 'rename-routine': {
+      const name = action.name.trim();
+      if (!name) return state;
+      return {
+        ...state,
+        routines: state.routines.map((r) =>
+          r.id === action.id ? { ...r, name } : r,
+        ),
+      };
+    }
+    case 'update-routine-items': {
+      return {
+        ...state,
+        routines: state.routines.map((r) =>
+          r.id === action.id ? { ...r, items: action.items } : r,
+        ),
+      };
+    }
+    case 'delete-routine': {
+      return {
+        ...state,
+        routines: state.routines.filter((r) => r.id !== action.id),
+      };
+    }
+    case 'add-routine-to-day': {
+      const routine = state.routines.find((r) => r.id === action.routineId);
+      if (!routine || routine.items.length === 0) return state;
+      const groupId = uid();
+      const newTasks: Task[] = routine.items.map((item) => ({
+        id: uid(),
+        title: item.title,
+        color: item.color,
+        column: action.target,
+        completed: false,
+        completedAt: null,
+        groupId,
+        ...(item.plannedMinutes != null ? { plannedMinutes: item.plannedMinutes } : {}),
+      }));
+      const tomorrowVisible =
+        action.target === 'tomorrow' ? true : state.tomorrowVisible;
+      return {
+        ...state,
+        tasks: [...state.tasks, ...newTasks],
+        groupNames: { ...state.groupNames, [groupId]: routine.name },
+        tomorrowVisible,
+      };
+    }
+    case 'delete-group': {
+      const tasks = state.tasks.filter(
+        (t) => !(t.groupId === action.groupId && !t.dayKey),
+      );
+      const groupNames = pruneGroupName(state.groupNames, tasks, action.groupId);
+      return { ...state, tasks, groupNames };
+    }
+    case 'delete-task-hard': {
+      const task = state.tasks.find((t) => t.id === action.id);
+      if (!task) return state;
+      let next = state;
+      if (task.completed && task.completedSnapshot) {
+        next = applyUncompletion(state, task);
+      }
+      const tasks = next.tasks.filter((t) => t.id !== action.id);
+      const groupNames = task.groupId
+        ? pruneGroupName(next.groupNames, tasks, task.groupId)
+        : next.groupNames;
+      return { ...next, tasks, groupNames };
+    }
+    case 'show-tomorrow': {
+      return { ...state, tomorrowVisible: true };
+    }
   }
+}
+
+function migrate(parsed: Record<string, unknown>): State {
+  const version = typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : 1;
+  const merged: State = { ...initialState, ...(parsed as Partial<State>) };
+  if (!merged.currentDay) merged.currentDay = currentDayNow();
+  if (!merged.viewDay) merged.viewDay = merged.currentDay;
+  if (!merged.routines) merged.routines = [];
+  if (!merged.groupNames) merged.groupNames = {};
+
+  if (version < 2) {
+    const liveRoutineTasks: Task[] = [];
+    const remaining: Task[] = [];
+    for (const t of merged.tasks) {
+      if ((t.column as string) === 'routine' && !t.dayKey) {
+        liveRoutineTasks.push(t);
+      } else {
+        remaining.push(t);
+      }
+    }
+    if (liveRoutineTasks.length > 0) {
+      const routine: Routine = {
+        id: uid(),
+        name: 'Default',
+        items: liveRoutineTasks.map((t) => ({
+          id: uid(),
+          title: t.title,
+          color: t.color,
+          ...(t.plannedMinutes != null ? { plannedMinutes: t.plannedMinutes } : {}),
+        })),
+        createdAt: Date.now(),
+      };
+      merged.routines = [routine, ...merged.routines];
+    }
+    merged.tasks = remaining;
+    merged.tomorrowVisible = merged.tasks.some(
+      (t) => t.column === 'tomorrow' && !t.dayKey,
+    );
+    merged.schemaVersion = 2;
+  }
+
+  return merged;
 }
 
 function loadInitial(): State {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<State>;
-      const merged = { ...initialState, ...parsed };
-      if (!merged.currentDay) merged.currentDay = currentDayNow();
-      if (!merged.viewDay) merged.viewDay = merged.currentDay;
-      return merged;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return migrate(parsed);
     }
   } catch {
     // fall through to default

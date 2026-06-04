@@ -115,7 +115,7 @@ export function ProgressBar({ points, pendingBank, completions, onSpend }: Props
                 )}
                 {seg.absorbedGreen > 0 && (
                   <div
-                    className="bar-segment-tail"
+                    className={`bar-segment-color bar-segment-color-${seg.color}`}
                     style={{ width: `${tailPct}%` }}
                   />
                 )}
